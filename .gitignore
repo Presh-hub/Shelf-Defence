@@ -1,0 +1,7 @@
+.venv/
+.venv311/
+__pycache__/
+data/retail_shelf/
+data/lab02_subset/
+runs/
+*.pt

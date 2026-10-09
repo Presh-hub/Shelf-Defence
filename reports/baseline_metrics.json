@@ -1,0 +1,11 @@
+{
+  "experiment": "shelf_defense_baseline_v1",
+  "data": "40 training shelf images",
+  "evaluation": "12 validation images",
+  "model": "YOLOv8n fine-tuned for 2 epochs",
+  "metric": {
+    "name": "mAP@50",
+    "value": 0.0114
+  },
+  "limitation": "Only 37 of 40 training images and 9 of 12 validation images were usable because some annotations mixed detection and segmentation formats. Training lasted only 2 epochs. The small evaluation sample may not represent real supermarket conditions."
+}
