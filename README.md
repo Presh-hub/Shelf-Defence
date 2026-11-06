@@ -91,3 +91,30 @@ This baseline is an initial measured result, not evidence that the system is rea
 ### Reproducibility
 
 The pipeline uses a fixed random seed and documented dataset locations. Another team member must independently clone the repository, follow the setup and data instructions, execute the baseline, and confirm that `reports/baseline_metrics.json` is generated.
+
+## Lab 04 — Inference Demo
+
+### Inference workflow
+
+The inference demo reuses the trained YOLOv8n model from Lab 02. A staff member submits a shelf image, the system checks the input, processes the image, and produces detections for staff review.
+
+The system uses a decision rule to send uncertain results for manual checking. If inference is unavailable, the safe action is manual shelf inspection.
+
+### Running the Inference Demo
+
+Activate the Python 3.11 environment and run the following command from the project root:
+
+```bash
+source .venv311/bin/activate
+python src/inference_demo.py --input-ref data/retail_shelf/valid/images/train_884_jpg.rf.8f7ce5bfdae5ae80f185d44b6aed6b33.jpg
+```
+
+The demo saves two example inference records to:
+
+`reports/inference_demo.jsonl`
+
+The records demonstrate a normal model response and a controlled unavailable response.
+
+### Architecture
+
+See `docs/inference_architecture.drawio` for the editable inference architecture diagram.
