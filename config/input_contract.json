@@ -1,0 +1,26 @@
+{
+  "contract_version": "input-contract-v1",
+  "required_fields": [
+    "input_ref",
+    "format",
+    "width",
+    "height",
+    "source"
+  ],
+  "allowed_formats": [
+    "jpg",
+    "jpeg",
+    "png"
+  ],
+  "minimum_width": 320,
+  "minimum_height": 320,
+  "approved_sources": [
+    "shelf_camera",
+    "staff_upload"
+  ],
+  "preprocessing_id": "preprocessing-v1",
+  "warning_conditions": {
+    "minimum_review_width": 640,
+    "minimum_review_height": 640
+  }
+}

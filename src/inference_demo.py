@@ -1,4 +1,3 @@
-import argparse
 import json
 import time
 import uuid
@@ -6,16 +5,21 @@ from pathlib import Path
 
 from ultralytics import YOLO
 
+try:
+    from .input_validation import route_request
+except ImportError:
+    from input_validation import route_request
+
 ROOT = Path(__file__).resolve().parents[1]
 MODEL_PATH = ROOT / "runs" / "lab02_baseline" / "weights" / "best.pt"
-OUTPUT_PATH = ROOT / "reports" / "inference_demo.jsonl"
+OUTPUT_PATH = ROOT / "reports" / "validation_demo.jsonl"
 
 MODEL_VERSION = "yolov8n-lab02-v1"
-RULE_VERSION = "shelf-review-v1"
+RULE_VERSION = "shelf-input-assurance-v1"
 
-NORMAL_ACTION = "show detections to shelf staff"
-REVIEW_ACTION = "ask staff to check the shelf image"
-UNAVAILABLE_ACTION = "use manual shelf inspection"
+# Deterministic prediction preprocessing represented here:
+# YOLO inference uses imgsz=320, CPU execution, and no random augmentation.
+PREPROCESSING_ID = "preprocessing-v1"
 
 CONFIDENCE_THRESHOLD = 0.50
 
@@ -61,85 +65,128 @@ def project_predict(model, image_path):
     }
 
 
-def make_record(input_ref, prediction, latency_ms, simulated=False):
-    if simulated:
-        status = "unavailable"
-        result = None
-        action = UNAVAILABLE_ACTION
-
-    elif prediction["needs_review"]:
-        status = "review"
-        result = prediction["result"]
-        action = REVIEW_ACTION
-
-    else:
-        status = "ok"
-        result = prediction["result"]
-        action = NORMAL_ACTION
-
-    return {
-        "request_id": str(uuid.uuid4()),
-        "input_ref": input_ref,
-        "status": status,
-        "result": result,
-        "model_version": MODEL_VERSION,
-        "rule_version": RULE_VERSION,
-        "latency_ms": round(latency_ms, 2),
-        "action": action,
-        "simulated": simulated,
-    }
-
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--input-ref", required=True)
-    args = parser.parse_args()
-
-    image_path = Path(args.input_ref)
+def predict_from_request(request):
+    image_path = Path(request["input_ref"])
 
     if not image_path.is_absolute():
         image_path = ROOT / image_path
 
     if not image_path.is_file():
-        raise FileNotFoundError(f"Input image not found: {image_path}")
-
-    if image_path.suffix.lower() not in {".jpg", ".jpeg", ".png"}:
-        raise ValueError("Input must be a JPG, JPEG, or PNG image.")
+        return {
+            "model_inference_ran": False,
+            "result": None,
+            "unavailable_reason": "Input image file is not available.",
+        }
 
     if not MODEL_PATH.is_file():
-        raise FileNotFoundError(f"Trained model not found: {MODEL_PATH}")
+        return {
+            "model_inference_ran": False,
+            "result": None,
+            "unavailable_reason": "Trained model weights best.pt are not available.",
+        }
 
     model = YOLO(str(MODEL_PATH))
-
-    start = time.perf_counter()
     prediction = project_predict(model, image_path)
+
+    return {
+        "model_inference_ran": True,
+        "result": prediction["result"],
+        "needs_review": prediction["needs_review"],
+    }
+
+
+def run_demo_case(request):
+    request_id = str(uuid.uuid4())
+    start = time.perf_counter()
+
+    request = {**request, "request_id": request_id}
+
+    outcome = route_request(
+        request=request,
+        predict_callback=predict_from_request,
+        runtime_preprocessing_id=PREPROCESSING_ID,
+    )
+
     latency_ms = (time.perf_counter() - start) * 1000
 
-    input_ref = image_path.relative_to(ROOT).as_posix()
+    validation = outcome["validation"]
+    prediction = outcome.get("prediction")
 
-    normal_record = make_record(
-        input_ref,
-        prediction,
-        latency_ms,
-    )
+    record = {
+        "request_id": outcome["request_id"],
+        "input_ref": request["input_ref"],
+        "rules": validation.get("rules", []),
+        "combined_status": validation["combined_status"],
+        "chosen_action": validation["action"],
+        "prediction_callback_called": outcome.get(
+            "prediction_callback_called", False
+        ),
+        "prediction_ran": outcome.get("prediction_ran", False),
+        "prediction_result": prediction,
+        "preprocessing_id": PREPROCESSING_ID,
+        "model_version": MODEL_VERSION,
+        "rule_version": RULE_VERSION,
+        "latency_ms": round(latency_ms, 2),
+    }
 
-    unavailable_record = make_record(
-        input_ref,
-        prediction,
-        0.1,
-        simulated=True,
-    )
+    return record
+
+
+def main():
+    demo_requests = [
+        {
+            "input_ref": "data/images/demo.jpg",
+            "format": "jpg",
+            "width": 800,
+            "height": 800,
+            "source": "shelf_camera",
+        },
+        {
+            "input_ref": "data/images/invalid.bmp",
+            "format": "bmp",
+            "width": 200,
+            "height": 200,
+            "source": "shelf_camera",
+        },
+        {
+            "input_ref": "data/images/review.jpg",
+            "format": "jpg",
+            "width": 400,
+            "height": 400,
+            "source": "shelf_camera",
+        },
+    ]
+
+    records = [run_demo_case(request) for request in demo_requests]
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(OUTPUT_PATH, "w") as output_file:
-        output_file.write(json.dumps(normal_record) + "\n")
-        output_file.write(json.dumps(unavailable_record) + "\n")
+    with OUTPUT_PATH.open("w", encoding="utf-8") as output_file:
+        for record in records:
+            output_file.write(json.dumps(record) + "\n")
 
-    print("INFERENCE DEMO COMPLETE")
-    print(json.dumps(normal_record, indent=2))
-    print(json.dumps(unavailable_record, indent=2))
-    print(f"\nSaved records to: {OUTPUT_PATH}")
+    print("\nLAB 05 INPUT VALIDATION DEMO")
+    print("=" * 40)
+
+    for record in records:
+        print(f"\nRequest: {record['request_id']}")
+        print(f"Status: {record['combined_status']}")
+        print(f"Action: {record['chosen_action']}")
+        print(
+            "Prediction callback called:",
+            record["prediction_callback_called"],
+        )
+        print("Actual model inference ran:", record["prediction_ran"])
+
+        if record["prediction_result"] and record["prediction_result"].get(
+            "unavailable_reason"
+        ):
+            print(
+                "Note:",
+                record["prediction_result"]["unavailable_reason"],
+            )
+
+    print("\nSaved JSONL trace to:", OUTPUT_PATH)
 
 
 if __name__ == "__main__":
